@@ -6,6 +6,24 @@ from src.bot import bot
 from src.constants import keyboards, keys, states
 from src.db import db
 from src.filters import IsAdmin
+from src.utils.io import read_json, read_file
+from src.data import DATA_DIR
+from src.utils.keyboard import create_keyboard
+
+
+class User:
+    def __init__(self, chat_id):
+        self.chat.id = chat_id
+
+    def current_quastion(self):
+        """
+        Get current message
+        """
+        current_quastion = []
+        for message in self.db.users.find_one({'chat.id': self.chat.id})['current_quastion']:
+            current_quastion.append(message)
+        
+        return '\n\n'.join(current_quastion)
 
 
 class Bot:
@@ -29,9 +47,37 @@ class Bot:
         self.bot.infinity_polling()
 
     def handlers(self):
-        @self.bot.message_handler(text=[keys.exit])
-        def exit(message):
-            pass
+        @self.bot.message_handler(commands=['start'])
+        def send_welcome(message):
+            self.bot.reply_to(message, 
+            f"Hey, <strong>{message.chat.first_name}</strong>",
+            reply_markup=keyboards.main
+            )
+           
+            self.db.users.update_one(
+                {'chat.id': message.chat.id}, 
+                {'$set': message.json}, 
+                upsert=True
+            )
+            self.update_state(message.chat.id, states.main)
+
+        @self.bot.message_handler(text=[emoji.emojize(keys.ask_question)])
+        def ask_quastion(message):
+            self.update_state(message.chat.id, states.ask_question)
+            self.bot.send_message(
+                message.chat.id,
+                read_file(DATA_DIR / 'guide.html'),
+                reply_markup=create_keyboard(keys.cancel)
+            )
+
+        @self.bot.message_handler(text=[emoji.emojize(keys.cancel)])
+        def cancel(message):
+            self.update_state(message.chat.id, states.main)
+            self.bot.send_message(
+                message.chat.id,
+                emoji.emojize(':cross_mark: Canceled.'),
+                reply_markup=keyboards.main
+            )
 
         @self.bot.message_handler(text=[keys.settings])
         def settings(message):
@@ -43,8 +89,14 @@ class Bot:
 
         @self.bot.message_handler(func=lambda ـ: True)
         def echo(message):
+            self.db.users.update_one(
+                {'chat.id': message.chat.id},
+                {'$push': {'current_quastion': message.text}}
+            )
+            u = User(chat_id=message.chat.id)
             self.send_message(
-                message.chat.id, message.text,
+                message.chat.id, 
+                u.current_quastion(),
                 reply_markup=keyboards.main
             )
 
@@ -59,10 +111,10 @@ class Bot:
 
     def update_state(self, chat_id, state):
         """
-        Update user states
+        Update user state.
         """
         self.db.users.update_one(
-            {'chat.id': chat.id},
+            {'chat.id': chat_id},
             {'$set': {'state': state}}
         )
 
