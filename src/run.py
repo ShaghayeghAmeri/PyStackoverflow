@@ -4,26 +4,12 @@ from telebot import custom_filters
 
 from src.bot import bot
 from src.constants import keyboards, keys, states
+from src.data import DATA_DIR
 from src.db import db
 from src.filters import IsAdmin
-from src.utils.io import read_json, read_file
-from src.data import DATA_DIR
+from src.utils.io import read_file, read_json
 from src.utils.keyboard import create_keyboard
-
-
-class User:
-    def __init__(self, chat_id):
-        self.chat.id = chat_id
-
-    def current_quastion(self):
-        """
-        Get current message
-        """
-        current_quastion = []
-        for message in self.db.users.find_one({'chat.id': self.chat.id})['current_quastion']:
-            current_quastion.append(message)
-        
-        return '\n\n'.join(current_quastion)
+from src.users import User
 
 
 class Bot:
@@ -72,6 +58,8 @@ class Bot:
 
         @self.bot.message_handler(text=[emoji.emojize(keys.cancel)])
         def cancel(message):
+            user = User(chat_id=message.chat.id)
+            user.reset()
             self.update_state(message.chat.id, states.main)
             self.bot.send_message(
                 message.chat.id,
@@ -89,23 +77,24 @@ class Bot:
 
         @self.bot.message_handler(func=lambda ـ: True)
         def echo(message):
-            self.db.users.update_one(
-                {'chat.id': message.chat.id},
-                {'$push': {'current_quastion': message.text}}
-            )
-            u = User(chat_id=message.chat.id)
-            self.send_message(
-                message.chat.id, 
-                u.current_quastion(),
-                reply_markup=keyboards.main
-            )
+            user = User(chat_id=message.chat.id)
+            if user.get_state() == states.ask_question:
+                self.db.users.update_one(
+                    {'chat.id': message.chat.id},
+                    {'$push': {'current_quastion': message.text}}
+                )
+                self.send_message(
+                    message.chat.id, 
+                    user.current_quastion(),
+                    reply_markup=keyboards.ask_quastion
+                )
 
     def send_message(self, chat_id, text, reply_markup=None, emojize=True):
         """
-        Send message to telegram bot.
+        Send message to telegram bot having a chat_id and text_content.
         """
         if emojize:
-            text = emoji.emojize(text, use_aliases=True)
+            text = emoji.emojize(text)
 
         self.bot.send_message(chat_id, text, reply_markup=reply_markup)
 
