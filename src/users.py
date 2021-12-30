@@ -1,38 +1,75 @@
+import emoji
+
+from src.constants import keys, states
 from src.db import db
 
-class User:
-    def __init__(self, chat_id):
-        self.chat_id = chat_id
-        self.db = db
 
-    def get_user(self):
+class User:
+    def __init__(self, chat_id, mongodb, bot):
+        self.chat_id = chat_id
+        self.db = mongodb
+        self.bot = bot
+
+    @property
+    def user(self):
         return self.db.users.find_one({'chat.id': self.chat_id})
 
-    def get_state(self):
-        user = self.get_user()
-        return user.get('state')
+    @property
+    def state(self):
+        return self.user.get('state')
+
     
+    @property
     def current_quastion(self):
         """
         Get current message
         """
-        user = self.get_user()
-        current_quastion = []
+        user = self.user
         if not user or not user.get('current_quastion'):
             return ''
         
-        current_quastion = '\n\n'.join(user['current_quastion'])
-        return f':right_arrow: Preview Quastion \n{current_quastion}'
+        current_quastion = ':pencil: Preview Quastion\n\n'
+        current_quastion += '\n'.join(user['current_quastion'])
+        current_quastion += f'\n{"-"*50}\nWhen done, click {keys.send_quastion}'
+        return current_quastion
 
-    def reset(self):
-        self.db.users.update_one({'chat.id': self.chat_id}, {'$set': {'current_quastion': []}})
 
-    def update_state(self, chat_id, state):
+    def save_quastion(self):
+        """
+        save question to database
+        """
+        user = self.user
+        if not user or not user.get('current_quastion'):
+            return
+        
+        self.db.quastion.insert_one(
+            'chat_id': self.chat_id,
+            'current_quastion': user['current_quastion']
+        )
+        self.db.users.update_one(
+            {'chat_id': self.chat_id},
+            {'$set': {'current_quastion': []}}
+        )
+
+    def update_state(self, state):
         """
         Update user state.
         """
         self.db.users.update_one(
-            {'chat.id': chat_id},
+            {'chat.id': self.chat_id},
             {'$set': {'state': state}}
         )
+
+    def send_message(self, text, reply_markup=None, emojize=True):
+        """
+        Send message to telegram bot having a chat_id and text_content.
+        """
+        if emojize:
+            text = emoji.emojize(text)
+
+        self.bot.send_message(self.chat_id, text, reply_markup=reply_markup)
+
+    def reset(self):
+        self.db.users.update_one({'chat.id': self.chat_id}, {'$set': {'current_quastion': [], 'state': states.main}})
+
 

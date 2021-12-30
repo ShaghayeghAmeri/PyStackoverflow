@@ -33,11 +33,18 @@ class Bot:
         self.bot.infinity_polling()
 
     def handlers(self):
+        @bot.middleware_handler(update_types=['message'])
+        def modify_message(bot_instance, message):
+        # getting update user before message reach any other handlers
+            self.user = User(chat_id=message.chat.id, mongodb=self.db, bot=self.bot)
+            message.text = emoji.demojize(message.text)
+
+
         @self.bot.message_handler(commands=['start'])
         def send_welcome(message):
-            self.bot.reply_to(message, 
-            f"Hey, <strong>{message.chat.first_name}</strong>",
-            reply_markup=keyboards.main
+            self.user.send_message(
+                f"Hey, <strong>{message.chat.first_name}</strong>",
+                reply_markup=keyboards.main
             )
            
             self.db.users.update_one(
@@ -45,27 +52,24 @@ class Bot:
                 {'$set': message.json}, 
                 upsert=True
             )
-            self.update_state(message.chat.id, states.main)
+            self.user.reset()
 
-        @self.bot.message_handler(text=[emoji.emojize(keys.ask_question)])
+        @self.bot.message_handler(text=[keys.ask_question])
         def ask_quastion(message):
             self.update_state(message.chat.id, states.ask_question)
-            self.bot.send_message(
-                message.chat.id,
-                read_file(DATA_DIR / 'guide.html'),
-                reply_markup=create_keyboard(keys.cancel)
-            )
+            guide_text = read_file(DATA_DIR / 'guide.html')
+            self.user.send_message(guide_text, reply_markup=keyboards.ask_quastion)
 
-        @self.bot.message_handler(text=[emoji.emojize(keys.cancel)])
+        @self.bot.message_handler(text=[keys.cancel])
         def cancel(message):
-            user = User(chat_id=message.chat.id)
-            user.reset()
-            self.update_state(message.chat.id, states.main)
-            self.bot.send_message(
-                message.chat.id,
-                emoji.emojize(':cross_mark: Canceled.'),
-                reply_markup=keyboards.main
-            )
+            self.user.update_state(states.main)
+            self.user.send_message(emoji.emojize(':cross_mark: Canceled.'), reply_markup=keyboards.main)
+
+        @self.bot.message_handler(text=[keys.send_quastion])
+        def cancel(message):
+            self.user.update_state(states.main)
+            self.user.send_message(emoji.emojize(':cross_mark: Canceled.'), reply_markup=keyboards.main)
+
 
         @self.bot.message_handler(text=[keys.settings])
         def settings(message):
@@ -73,19 +77,17 @@ class Bot:
 
         @self.bot.message_handler(is_admin=True)
         def admin_of_group(message):
-            self.send_message(message.chat.id, '<strong>You are admin of this group!</strong>')
+            self.user.send_message(message.chat.id, '<strong>You are admin of this group!</strong>')
 
         @self.bot.message_handler(func=lambda ـ: True)
         def echo(message):
-            user = User(chat_id=message.chat.id)
-            if user.get_state() == states.ask_question:
+            if self.user.state == states.ask_question:
                 self.db.users.update_one(
                     {'chat.id': message.chat.id},
                     {'$push': {'current_quastion': message.text}}
                 )
-                self.send_message(
-                    message.chat.id, 
-                    user.current_quastion(),
+                self.user.send_message( 
+                    self.user.current_quastion,
                     reply_markup=keyboards.ask_quastion
                 )
 
