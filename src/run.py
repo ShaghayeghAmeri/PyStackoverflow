@@ -12,7 +12,7 @@ from src.utils.keyboard import create_keyboard
 from src.users import User
 
 
-class Bot:
+class StackBot:
     """
     Template for telegram bot.
     """
@@ -33,10 +33,16 @@ class Bot:
         self.bot.infinity_polling()
 
     def handlers(self):
-        @bot.middleware_handler(update_types=['message'])
-        def modify_message(bot_instance, message):
-        # getting update user before message reach any other handlers
-            self.user = User(chat_id=message.chat.id, mongodb=self.db, bot=self.bot)
+        @self.bot.middleware_handler(update_types=['message'])
+        def init_handler(bot_instance, message):
+            """
+            Initialize user to use in other handlers.
+            """
+            # Getting updated user before message reaches any other handler
+            self.user = User(
+                chat_id=message.chat.id, mongodb=self.db,
+                stackbot=self, message=message,
+            )
             message.text = emoji.demojize(message.text)
 
 
@@ -55,20 +61,27 @@ class Bot:
             self.user.reset()
 
         @self.bot.message_handler(text=[keys.ask_question])
-        def ask_quastion(message):
+        def ask_question(message):
             self.update_state(message.chat.id, states.ask_question)
             guide_text = read_file(DATA_DIR / 'guide.html')
-            self.user.send_message(guide_text, reply_markup=keyboards.ask_quastion)
+            self.user.send_message(guide_text, reply_markup=keyboards.ask_question)
 
         @self.bot.message_handler(text=[keys.cancel])
         def cancel(message):
-            self.user.update_state(states.main)
+            self.user.reset()
             self.user.send_message(emoji.emojize(':cross_mark: Canceled.'), reply_markup=keyboards.main)
 
-        @self.bot.message_handler(text=[keys.send_quastion])
-        def cancel(message):
-            self.user.update_state(states.main)
-            self.user.send_message(emoji.emojize(':cross_mark: Canceled.'), reply_markup=keyboards.main)
+        @self.bot.message_handler(text=[keys.send_question])
+        def send_question(message):
+            save_status = self.user.save_question()
+            if not save_status:
+                return
+            self.user.send_message(
+                ':check_mark_button: Question saved successfully.',
+                reply_markup=keyboards.main
+            )
+            self.user.send_to_all()
+            self.user.reset()
 
 
         @self.bot.message_handler(text=[keys.settings])
@@ -84,11 +97,11 @@ class Bot:
             if self.user.state == states.ask_question:
                 self.db.users.update_one(
                     {'chat.id': message.chat.id},
-                    {'$push': {'current_quastion': message.text}}
+                    {'$push': {'current_question': message.text}}
                 )
                 self.user.send_message( 
-                    self.user.current_quastion,
-                    reply_markup=keyboards.ask_quastion
+                    self.user.current_question,
+                    reply_markup=keyboards.ask_question
                 )
 
     def send_message(self, chat_id, text, reply_markup=None, emojize=True):
@@ -112,5 +125,5 @@ class Bot:
 
 if __name__ == '__main__':
     logger.info('Bot started')
-    nashenas_bot = Bot(telebot=bot, mongodb=db)
+    nashenas_bot = StackBot(telebot=bot, mongodb=db)
     nashenas_bot.run()
