@@ -2,7 +2,8 @@ import emoji
 
 from src.constants import keys, states
 from src.db import db
-
+import concurrent.futures
+from loguru import logger
 
 
 class User:
@@ -44,21 +45,32 @@ class User:
         """
         user = self.user
         if not user or not user.get('current_question'):
-            self.send_message(text='Quastion is empty!')
-            return
-
+            self.send_message(text='Question is empty!')
+            return False
+        logger.info('message saved!')
         self.db.questions.insert_one({
             'chat_id': self.chat_id,
             'question': self.user.get('current_question', []),
             'date': self.message.date,
         })
+        return True
 
     def send_to_all(self):
-        msg_txt = ':red_question_mark:<strong>New Question</strong>\n'
+        user = self.user
+        user_name = f"@{user['chat'].get('username')}"
+        first_name = user['chat']['first_name']
+        msg_txt = f':bus_in_silhouette:{user_name or first_name} asked:\n'
+        msg_txt += ':red_question_mark:<strong>New Question</strong>\n'
         msg_txt += self.question
-        for user in self.db.users.find():
-            self.stackbot.send_message(user['chat']['id'], msg_txt)
-
+        logger.info('send 1')
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for chat_id in self.db.users.distinct('chat.id'):
+                executor.submit(
+                    self.stackbot.send_message,
+                    chat_id,
+                    msg_txt
+                )
+        logger.info('send 2')
         self.send_message(text='Your message sent succesfully to all users')
 
     def update_state(self, state):
